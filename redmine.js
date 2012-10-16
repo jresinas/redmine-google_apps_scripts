@@ -403,6 +403,7 @@ return data;
     
     var url = REDMINE_URL + '/trackers.xml';
     
+    //If JSON is present and true, get info in JSON format
     if(json!=undefined && json){
       url = url.replace(".xml",".json");
     }
