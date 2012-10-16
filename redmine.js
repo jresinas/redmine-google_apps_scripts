@@ -144,14 +144,18 @@ var Translator = (function() {
     return obj;
   };
 
-  Translator.prototype.searchTag = function (data, tag) {
+  Translator.prototype.searchTag = function (data, tag, json) {
 
     var ret_value;
 
-    for (var i in data) {
-      if (data[i][tag]) {
-        ret_value = data[i][tag];
-        break;
+    if(json!=undefined && json){
+      ret_value = data[tag];
+    }else{
+      for (var i in data) {
+        if (data[i][tag]) {
+          ret_value = data[i][tag];
+          break;
+        }
       }
     }
 
@@ -180,20 +184,24 @@ var Redmine = (function() {
     // Privileged methods
     this.paginate = function (url) {
       
+      url.replace(".json", ".xml");
+      
       var response = this.http.Get(url);
       var content = response.getContentText();
       
       var xml = Xml.parse(content, true);
       var root = xml.getElement();
       
-      var entries = root.getAttribute('total_count').getValue();
+      var total_count = root.getAttribute('total_count');
+      
+      var entries = total_count!=null?total_count.getValue():0;
       
       var pages = Math.floor((entries / this.ITEMS_BY_PAGE) + 1);
       
       return pages;
     };
     
-    this.getDataElement = function (url, root_tag) {
+    this.getDataElement = function (url, root_tag, json) {
       // TODO: Avoid the use of root_tag and element_tag we can infer it.
       
       if (this.cache.get(url)) {
@@ -202,23 +210,34 @@ var Redmine = (function() {
       
       } else {
         
-        var data = [];
+        var data;
+        var elements;
         
-        var xml_content = this.http.Get(url);
-        var xml = Xml.parse(xml_content.getContentText(), true);
+        var content = this.http.Get(url);
         
-        var root_element = xml.getElement();
-        var elements_data = this.translator.xmlToJS(root_element);
-        
-        var elements = elements_data[root_tag].childs;
+        if(json!=undefined && json){
+          data = {};          
+          var json = Utilities.jsonParse(content.getContentText());
+          
+          data = json[root_tag];
+        }else{
+          data = [];
+          var xml = Xml.parse(content.getContentText(), true);
+          
+          var root_element = xml.getElement();
+          var elements_data = this.translator.xmlToJS(root_element);
+          
+          elements = elements_data[root_tag];
+          data = elements.childs;
+        }
         
         this.cache.set(url, elements);
         
-        return elements;
+        return data;
       }
     };
     
-    this.getData = function (base_url, root_tag, element_tag) {
+    this.getData = function (base_url, root_tag, element_tag, json) {
       
       if (this.cache.get(base_url)) {
 
@@ -237,20 +256,38 @@ var Redmine = (function() {
           else
             var url = base_url + '?limit=' + this.ITEMS_BY_PAGE + '&page=' + i;
           
-          var xml_content = this.http.Get(url);
-          var xml = Xml.parse(xml_content.getContentText(), true);
+          var content = this.http.Get(url);
           
-          var root_element = xml.getElement();
-          var elements_data = this.translator.xmlToJS(root_element);
-          
-          var elements = elements_data[root_tag].childs;
-          
-          if (!elements || elements.length == 0) {
-            return "Something went wrong";
-          }
-          
-          for (var j in elements) {
-            data.push(elements[j][element_tag].childs);
+          if(json!=undefined && json){
+            var json = Utilities.jsonParse(content.getContentText());
+            
+            var elements = json[root_tag];
+            
+            if (!elements || elements.length == 0) {
+              return "Something went wrong";
+            }
+            
+            for (var j in elements) {
+              data.push(elements[j]);
+            }
+            
+          }else{
+            
+            
+            var xml = Xml.parse(content.getContentText(), true);
+            
+            var root_element = xml.getElement();
+            var elements_data = this.translator.xmlToJS(root_element);
+            
+            var elements = elements_data[root_tag].childs;
+            
+            if (!elements || elements.length == 0) {
+              return "Something went wrong";
+            }
+            
+            for (var j in elements) {
+              data.push(elements[j][element_tag].childs);
+            }
           }
         }
         
@@ -262,71 +299,115 @@ var Redmine = (function() {
       
   }
 
-  Redmine.prototype.getIssues = function (project_id) {
+  Redmine.prototype.getIssues = function (project_id, json) {
     Logger.log("Launching getIssues(" + project_id + ")");
     
     var url = REDMINE_URL + '/issues.xml?project_id=' + project_id + '&status_id=*';
-    var data = this.getData(url, 'issues', 'issue');
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getData(url, 'issues', 'issue', json);
     
     return data;
   };
 
-  Redmine.prototype.getProjects = function () {
+  Redmine.prototype.getProjects = function (json) {
     Logger.log("Launching getProjects()");
     
     var url = REDMINE_URL + '/projects.xml';
-    var data = this.getData(url, 'projects', 'project');
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getData(url, 'projects', 'project', json);
     
     return data;
   };
 
-  Redmine.prototype.getProject = function (project_id) {
+  Redmine.prototype.getProject = function (project_id, json) {
     Logger.log("Launching getProject(" + project_id + ")");
     
     var url = REDMINE_URL + '/projects/' + project_id + '.xml';
-    var data = this.getDataElement(url, 'project');
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getDataElement(url, 'project', json);
 
     return data;
   };
 
-  Redmine.prototype.getTimeEntries = function (project_id) {
+  Redmine.prototype.getTimeEntries = function (project_id, json) {
     Logger.log("Launching getTimeEntries(" + project_id + ")");
     
     var url = REDMINE_URL + '/projects/' + project_id + '/time_entries.xml';
-    var data = this.getData(url, 'time_entries', 'time_entry');
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getData(url, 'time_entries', 'time_entry', json);
 
     return data;
   };
   
-  Redmine.prototype.getTimeEntriesByIssue = function (issue_id, project_id) {
+  Redmine.prototype.getTimeEntriesByIssue = function (issue_id, project_id, json) {
     Logger.log("Launching getTimeEntriesByIssue(" + issue_id + ")");
     
     /* By any reason this is returning bad values */
     /*
-    var url = REDMINE_URL + '/issues/' + issue_id + '/time_entries.xml';
-    var data = this.getData(url, 'time_entries', 'time_entry');
+var url = REDMINE_URL + '/issues/' + issue_id + '/time_entries.xml';
+var data = this.getData(url, 'time_entries', 'time_entry');
 
-    return data;
-    */
+return data;
+*/
     
     var data = [];
     
-    var time_entries = this.getTimeEntries(project_id);
+    var time_entries = this.getTimeEntries(project_id, json);
     
     for (var i = 0; i < time_entries.length; i++) {
-      var te_issue_id = this.translator.searchTag(time_entries[i], 'issue');
-      if (te_issue_id.attributes.id == issue_id)
-        data.push(time_entries[i]);
+      var te_issue = this.translator.searchTag(time_entries[i], 'issue', json);
+      if(json!=undefined && json){
+        if (te_issue.id == issue_id)
+          data.push(time_entries[i]);
+      }else{
+        if (te_issue.attributes.id == issue_id)
+          data.push(time_entries[i]);
+      }
     }
     
     return data;
   };
 
-  Redmine.prototype.getIssuesByTracker = function (project_id, tracker_id) {
+  Redmine.prototype.getIssuesByTracker = function (project_id, tracker_id, json) {
     Logger.log("Launching getIssuesByTracker("+project_id+","+tracker_id+")");
     
     var url = REDMINE_URL + '/issues.xml?project_id=' + project_id + '&tracker_id='+ tracker_id + '&status_id=*';
-    var data = this.getData(url, 'issues', 'issue');
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getData(url, 'issues', 'issue', json);
+    
+    return data;
+  };
+  
+  Redmine.prototype.getTrackers = function (json) {
+    Logger.log("Launching getTrackers()");
+    
+    var url = REDMINE_URL + '/trackers.xml';
+    
+    if(json!=undefined && json){
+      url = url.replace(".xml",".json");
+    }
+    
+    var data = this.getData(url, 'trackers', 'tracker', json);
     
     return data;
   };
